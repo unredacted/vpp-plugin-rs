@@ -403,6 +403,28 @@ impl<FeatureData> BufferRef<FeatureData> {
     pub fn prefetch_data_store(&self) {
         prefetch_store(&self.as_details().data);
     }
+
+    /// Get the current config index
+    ///
+    /// # Safety
+    ///
+    /// Must only be used from nodes when invoked from a feature arc.
+    pub unsafe fn current_config_index(&self) -> u32 {
+        // SAFETY: method precondition means that VPP is guaranteed to have initialised
+        // current_config_index
+        unsafe { self.as_metadata().__bindgen_anon_1.current_config_index }
+    }
+
+    /// Get a mutable reference to the current config index
+    ///
+    /// # Safety
+    ///
+    /// Must only be used from nodes when invoked from a feature arc.
+    pub unsafe fn current_config_index_mut(&mut self) -> &mut u32 {
+        // SAFETY: method precondition means that VPP is guaranteed to have initialised
+        // current_config_index
+        unsafe { &mut self.as_metadata_mut().__bindgen_anon_1.current_config_index }
+    }
 }
 
 /// Owned buffer (with context)

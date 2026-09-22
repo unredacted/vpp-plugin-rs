@@ -228,10 +228,7 @@ impl<FeatureData: Copy> crate::vlib::BufferRef<FeatureData> {
         unsafe {
             let cm = *feature_main.feature_config_mains.add(arc as usize);
 
-            vnet_get_config_data(
-                &cm.config_main,
-                &mut self.as_metadata_mut().__bindgen_anon_1.current_config_index,
-            )
+            vnet_get_config_data(&cm.config_main, self.current_config_index_mut())
         }
     }
 }

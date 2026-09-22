@@ -188,16 +188,13 @@ where
             let stride_b = stride_b.as_mut_array::<4>().unwrap_unchecked();
             let stride_nexts = stride_nexts.as_mut_array::<4>().unwrap_unchecked();
 
-            // Optimise for common case where feature arc indices are the same for
+            // Optimise for common case where feature config indices are the same for
             // all packets and for the case where the packet won't be dropped. This
             // allows for use of vectorised store of nexts[i..i + 3].
             if likely(
-                stride_b[0].vnet_buffer().feature_arc_index()
-                    == stride_b[1].vnet_buffer().feature_arc_index()
-                    && stride_b[0].vnet_buffer().feature_arc_index()
-                        == stride_b[2].vnet_buffer().feature_arc_index()
-                    && stride_b[0].vnet_buffer().feature_arc_index()
-                        == stride_b[3].vnet_buffer().feature_arc_index(),
+                stride_b[0].current_config_index() == stride_b[1].current_config_index()
+                    && stride_b[0].current_config_index() == stride_b[2].current_config_index()
+                    && stride_b[0].current_config_index() == stride_b[3].current_config_index(),
             ) {
                 let feature_next = stride_b[0].vnet_feature_next().0 as u16;
                 stride_nexts[0].write(feature_next);

@@ -201,6 +201,11 @@ where
                 stride_nexts[1].write(feature_next);
                 stride_nexts[2].write(feature_next);
                 stride_nexts[3].write(feature_next);
+
+                let current_config_index = stride_b[0].current_config_index();
+                *stride_b[1].current_config_index_mut() = current_config_index;
+                *stride_b[2].current_config_index_mut() = current_config_index;
+                *stride_b[3].current_config_index_mut() = current_config_index;
             } else {
                 stride_nexts[0].write(stride_b[0].vnet_feature_next().0 as u16);
                 stride_nexts[1].write(stride_b[1].vnet_feature_next().0 as u16);

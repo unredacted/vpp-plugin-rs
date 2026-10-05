@@ -1,6 +1,6 @@
 //! VPP networking types
 
-use std::{ffi::CStr, fmt, str::FromStr};
+use std::{fmt, str::FromStr};
 
 use crate::{
     bindings::{
@@ -10,6 +10,18 @@ use crate::{
     },
     vppinfra,
 };
+
+
+/// Writes the bytes a VPP `format()` call produced.
+///
+/// VPP's format functions build a byte vector that is not NUL-terminated (unless the format
+/// string appends one), so it is the vector's length that ends the text, not a NUL: reading it
+/// as a C string would drop its last byte and read past its end. A trailing NUL, when a caller
+/// did append one, is not part of the text.
+fn write_format_output(f: &mut fmt::Formatter<'_>, s: &[u8]) -> fmt::Result {
+    let s = s.strip_suffix(&[0]).unwrap_or(s);
+    write!(f, "{}", String::from_utf8_lossy(s))
+}
 
 impl ip6_address_t {
     /// Creates a new IPv6 address with all bytes set to zero
@@ -40,7 +52,7 @@ impl fmt::Debug for ip6_header_t {
 
 impl fmt::Display for ip6_header_t {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // SAFETY: vlib_helper_format_ip4_header returns a valid Vec representing a C string (on
+        // SAFETY: the format helper returns a valid VPP vector of the formatted bytes (on
         // allocation failure it aborts)
         unsafe {
             let s = vppinfra::vec::Vec::from_raw(vlib_helper_format_ip6_header(
@@ -48,8 +60,7 @@ impl fmt::Display for ip6_header_t {
                 self,
                 std::mem::size_of::<Self>(),
             ));
-            let cstr = CStr::from_bytes_with_nul_unchecked(&s);
-            write!(f, "{}", cstr.to_string_lossy())
+            write_format_output(f, &s)
         }
     }
 }
@@ -86,8 +97,7 @@ impl fmt::Display for SwIfIndex {
                 vnet_get_main(),
                 self.0,
             ));
-            let cstr = CStr::from_bytes_with_nul_unchecked(&s);
-            write!(f, "{}", cstr.to_string_lossy())
+            write_format_output(f, &s)
         }
     }
 }
@@ -131,7 +141,7 @@ impl fmt::Debug for ip4_header_t {
 
 impl fmt::Display for ip4_header_t {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // SAFETY: vlib_helper_format_ip4_header returns a valid Vec representing a C string (on
+        // SAFETY: the format helper returns a valid VPP vector of the formatted bytes (on
         // allocation failure it aborts)
         unsafe {
             let s = vppinfra::vec::Vec::from_raw(vlib_helper_format_ip4_header(
@@ -139,8 +149,7 @@ impl fmt::Display for ip4_header_t {
                 self,
                 std::mem::size_of::<Self>(),
             ));
-            let cstr = CStr::from_bytes_with_nul_unchecked(&s);
-            write!(f, "{}", cstr.to_string_lossy())
+            write_format_output(f, &s)
         }
     }
 }

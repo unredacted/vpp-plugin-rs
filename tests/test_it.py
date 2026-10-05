@@ -476,6 +476,13 @@ class IntegrationTestCase(VppTestCase):
         with self.assertRaises(CliFailedCommandError):
             self.vapi.cli("rust-test version-mismatch")
 
+    def test_sw_if_index_display(self):
+        """SwIfIndex formats as the interface's whole name"""
+        # VPP's format output is not NUL-terminated; reading it as a C string dropped the
+        # last byte ("pg" for pg0).
+        for pg in [self.pg0, self.pg1]:
+            self.cli_verify_response(f"rust-test sw-if-name {pg.name}", pg.name)
+
     def node_variants(self, node_name):
         """names of the function variants a node registered, from `show node`"""
         reply = self.vapi.cli(f"show node {node_name}")

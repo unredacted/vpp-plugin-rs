@@ -574,6 +574,26 @@ fn negative_test_command(
     }
 }
 
+#[vlib_cli_command(
+    path = "rust-test sw-if-name",
+    short_help = "rust-test sw-if-name <interface-name>"
+)]
+fn sw_if_name_command(vm: &mut vlib::BarrierHeldMainRef, input: &str) -> Result<(), ErrorStack> {
+    let sw_if_index = SwIfIndex::from_str(input.trim())
+        .map_err(|_| ErrorStack::msg(format!("Unknown interface {input}")))?;
+    let name = std::ffi::CString::new(sw_if_index.to_string())
+        .map_err(|_| ErrorStack::msg("interface name contains a NUL"))?;
+    // SAFETY: vm is the CLI's main; "%s" with one NUL-terminated argument.
+    unsafe {
+        vpp_plugin::bindings::vlib_cli_output(
+            vm.as_ptr(),
+            c"%s".as_ptr().cast_mut(),
+            name.as_ptr(),
+        );
+    }
+    Ok(())
+}
+
 #[vlib_cli_command(path = "rust-test message", short_help = "rust-test message")]
 fn message_test_command(
     _vm: &mut vlib::BarrierHeldMainRef,

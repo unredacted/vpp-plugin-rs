@@ -342,7 +342,8 @@ struct ErrorCounterAttribute {
 
 impl syn::parse::Parse for ErrorCounterAttribute {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        const VALID_SEVERITIES: &[&str] = &["INFO", "WARNING", "ERROR", "CRITICAL"];
+        // VPP's vl_counter_severity_e has exactly these three, and spells WARNING "WARN".
+        const VALID_SEVERITIES: &[&str] = &["INFO", "WARNING", "ERROR"];
 
         let mut name_or_description_kw = syn::Ident::parse(input)?;
 
@@ -407,7 +408,7 @@ impl syn::parse::Parse for ErrorCounterAttribute {
 /// - `name = "<name>"`: (optional) The name of the error counter. If not provided, the variant name will be used.
 /// - `description = "<description>"`: (required) A description of the error counter
 /// - `severity = <severity>`: (required) The severity of the error counter. Must be one of
-///   `INFO`, `WARNING`, `ERROR`, or `CRITICAL`.
+///   `INFO`, `WARNING` or `ERROR` (VPP has no others).
 ///
 /// # Examples
 ///
@@ -461,6 +462,10 @@ pub fn derive_error_counters(input: TokenStream) -> TokenStream {
                 format!("{}\0", variant.ident)
             };
             let description = format!("{}\0", description);
+            let severity = match severity.to_string().as_str() {
+                "WARNING" => "WARN".to_string(),
+                other => other.to_string(),
+            };
             let severity = syn::parse_str::<syn::Ident>(&format!(
                 "vl_counter_severity_e_VL_COUNTER_SEVERITY_{}",
                 severity

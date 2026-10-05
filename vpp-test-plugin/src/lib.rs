@@ -410,6 +410,10 @@ enum TestChainCounter {
     Enabled,
     #[error_counter(description = "From interfaces the feature is not enabled on", severity = ERROR)]
     Foreign,
+    // Never counted: its job is to compile, which needs WARNING to map to VPP's
+    // VL_COUNTER_SEVERITY_WARN.
+    #[error_counter(description = "Unused", severity = WARNING)]
+    _Warning,
 }
 
 static TEST_CHAIN_NODE: TestChainNode = TestChainNode::new();

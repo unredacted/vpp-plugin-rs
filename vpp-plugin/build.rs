@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 const BUILD_VER_PROBE: &str = "vpp_build_ver_probe.c";
 const SHARED_HEAP_PROBE: &str = "shared_heap_probe.c";
+const CHAIN_LAST_PROBE: &str = "chain_last_probe.c";
 
 fn out_dir() -> PathBuf {
     PathBuf::from(env::var("OUT_DIR").unwrap())
@@ -97,6 +98,27 @@ fn has_shared_feature_config_heap() -> bool {
         .is_ok()
 }
 
+/// VPP 26.10 grew `vlib_buffer_length_in_chain_slow_path` from `(vm, b_first)`
+/// to `(vm, b_first, b_last, count)`, the two new out-parameters optional
+/// (NULL, as `vlib_buffer_length_in_chain` passes them). Probe for the call
+/// shape, as for the shared heap, rather than parse a version string.
+fn has_chain_slow_path_last_count() -> bool {
+    let probe = out_dir().join(CHAIN_LAST_PROBE);
+    std::fs::write(
+        &probe,
+        "#include <vlib/vlib.h>\n#include <vlib/buffer_funcs.h>\n\
+         uword pf_probe (vlib_main_t *vm, vlib_buffer_t *b)\n\
+         { return vlib_buffer_length_in_chain_slow_path (vm, b, 0, 0); }\n",
+    )
+    .expect("write chain slow-path probe");
+    cc::Build::new()
+        .file(&probe)
+        .cargo_warnings(false)
+        .cargo_metadata(false)
+        .try_compile("chain_last_probe")
+        .is_ok()
+}
+
 /// Make Cargo rerun this script when a header that `sources` include
 /// changes, so the bindings, `VPP_BUILD_VER` and the cfgs never outlive the
 /// VPP they came from: a plugin built from stale struct layouts is
@@ -174,6 +196,7 @@ fn main() {
     println!("cargo:rerun-if-changed=vlib_wrapper.h");
     println!("cargo:rustc-check-cfg=cfg(pregenerated_bindings)");
     println!("cargo:rustc-check-cfg=cfg(vpp_shared_feature_config_heap)");
+    println!("cargo:rustc-check-cfg=cfg(vpp_chain_slow_path_last_count)");
     // Where the compilers look for VPP's headers besides their flags, which
     // cc (CC, CFLAGS, ...) and bindgen (BINDGEN_EXTRA_CLANG_ARGS, through
     // CargoCallbacks) declare themselves; and the libclang bindgen loads.
@@ -197,12 +220,17 @@ fn main() {
         println!("cargo:rustc-cfg=vpp_shared_feature_config_heap");
     }
 
+    if has_chain_slow_path_last_count() {
+        println!("cargo:rustc-cfg=vpp_chain_slow_path_last_count");
+    }
+
     build_wrapper();
 
     rerun_if_headers_change(&[
         PathBuf::from("vlib_wrapper.c"),
         out_dir().join(BUILD_VER_PROBE),
         out_dir().join(SHARED_HEAP_PROBE),
+        out_dir().join(CHAIN_LAST_PROBE),
     ]);
 
     let bindings = bindgen::Builder::default()

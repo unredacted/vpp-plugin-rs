@@ -364,9 +364,22 @@ impl<FeatureData> BufferRef<FeatureData> {
         }
 
         // SAFETY: The buffer pointer is valid and the function is called in a valid context.
-        unsafe {
+        #[cfg(not(vpp_chain_slow_path_last_count))]
+        let len = unsafe {
             crate::bindings::vlib_buffer_length_in_chain_slow_path(vm.as_ptr(), self.as_ptr())
-        }
+        };
+        // SAFETY: As above. The last-buffer and count out-parameters are optional: NULL is
+        // what VPP's own `vlib_buffer_length_in_chain` passes.
+        #[cfg(vpp_chain_slow_path_last_count)]
+        let len = unsafe {
+            crate::bindings::vlib_buffer_length_in_chain_slow_path(
+                vm.as_ptr(),
+                self.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        len
     }
 
     /// Hint to the CPU to prefetch the buffer header for read access.

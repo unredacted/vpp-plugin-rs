@@ -1,5 +1,13 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::path::PathBuf;
+
+const BUILD_VER_PROBE: &str = "vpp_build_ver_probe.c";
+const SHARED_HEAP_PROBE: &str = "shared_heap_probe.c";
+
+fn out_dir() -> PathBuf {
+    PathBuf::from(env::var("OUT_DIR").unwrap())
+}
 
 fn headers_available() -> bool {
     let mut cc = cc::Build::new();
@@ -28,7 +36,7 @@ fn build_wrapper() {
 /// `VPP_BUILD_VER` from the VPP headers being compiled against (`vpp/app/version.h`), read
 /// through the C preprocessor so the compiler's own include path decides which VPP it is.
 fn vpp_build_ver() -> String {
-    let probe = PathBuf::from(env::var("OUT_DIR").unwrap()).join("vpp_build_ver_probe.c");
+    let probe = out_dir().join(BUILD_VER_PROBE);
     std::fs::write(
         &probe,
         "#include <vpp/app/version.h>\nvpp_plugin_build_ver VPP_BUILD_VER\n",
@@ -74,7 +82,7 @@ fn build_ver_from_expansion(expanded: &str) -> Option<String> {
 /// that heap by `current_config_index` alone. Probe for the field rather
 /// than parse a version string so any build of either shape is handled.
 fn has_shared_feature_config_heap() -> bool {
-    let probe = PathBuf::from(env::var("OUT_DIR").unwrap()).join("shared_heap_probe.c");
+    let probe = out_dir().join(SHARED_HEAP_PROBE);
     std::fs::write(
         &probe,
         "#include <vnet/vnet.h>\n#include <vnet/feature/feature.h>\n\
@@ -89,10 +97,89 @@ fn has_shared_feature_config_heap() -> bool {
         .is_ok()
 }
 
+/// Make Cargo rerun this script when a header that `sources` include
+/// changes, so the bindings, `VPP_BUILD_VER` and the cfgs never outlive the
+/// VPP they came from: a plugin built from stale struct layouts is
+/// memory-unsafe, and one claiming the wrong `version_required` is refused.
+/// The preprocessor lists the headers (`-M`), so its own include path
+/// decides, as it does for everything else here.
+///
+/// Each header's directory is watched as well as the header. A package
+/// manager installs a header with its archive's mtime, which can be older
+/// than this script's last run (dpkg does, so upgrading the `vpp-dev` deb
+/// alone would not register), but renaming it into place bumps the
+/// directory's mtime, and Cargo takes the newest mtime under a watched
+/// directory.
+fn rerun_if_headers_change(sources: &[PathBuf]) {
+    let out_dir = out_dir();
+    let mut watched = BTreeSet::new();
+    for source in sources {
+        let rule = cc::Build::new()
+            .file(source)
+            .flag("-M")
+            .cargo_metadata(false)
+            .try_expand()
+            .expect("list the headers the build compiles against");
+        for dep in make_prerequisites(&String::from_utf8_lossy(&rule)) {
+            let dep = PathBuf::from(dep);
+            // The probes are rewritten every run: watching them would rerun every build.
+            if dep.starts_with(&out_dir) {
+                continue;
+            }
+            if let Some(dir) = dep.parent().filter(|d| !d.as_os_str().is_empty()) {
+                watched.insert(dir.to_path_buf());
+            }
+            watched.insert(dep);
+        }
+    }
+    // Cargo walks a watched directory whole, so anything under another is redundant.
+    for path in &watched {
+        if !path.ancestors().skip(1).any(|a| watched.contains(a)) {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+}
+
+/// The prerequisites of the make rule(s) `-M` printed: everything after a
+/// target's `:`, across `\`-continued lines, with make's `\ ` and `$$`
+/// escapes undone.
+fn make_prerequisites(rules: &str) -> Vec<String> {
+    let rules = rules.replace("\\\r\n", " ").replace("\\\n", " ");
+    let mut deps = Vec::new();
+    for line in rules.lines() {
+        let Some((_, prereqs)) = line.split_once(": ") else {
+            continue;
+        };
+        let mut dep = String::new();
+        let mut chars = prereqs.chars().peekable();
+        while let Some(c) = chars.next() {
+            match (c, chars.peek()) {
+                ('\\', Some(' ')) | ('$', Some('$')) => dep.push(chars.next().unwrap()),
+                (c, _) if c.is_whitespace() => {
+                    if !dep.is_empty() {
+                        deps.push(std::mem::take(&mut dep));
+                    }
+                }
+                (c, _) => dep.push(c),
+            }
+        }
+        if !dep.is_empty() {
+            deps.push(dep);
+        }
+    }
+    deps
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=vlib_wrapper.h");
     println!("cargo:rustc-check-cfg=cfg(pregenerated_bindings)");
     println!("cargo:rustc-check-cfg=cfg(vpp_shared_feature_config_heap)");
+    // Where the compilers look for VPP's headers besides their flags, which
+    // cc (CC, CFLAGS, ...) and bindgen (BINDGEN_EXTRA_CLANG_ARGS, through
+    // CargoCallbacks) declare themselves; and the libclang bindgen loads.
+    for var in ["CPATH", "C_INCLUDE_PATH", "LIBCLANG_PATH"] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
 
     if !headers_available() {
         println!("cargo:rustc-cfg=pregenerated_bindings");
@@ -112,8 +199,15 @@ fn main() {
 
     build_wrapper();
 
+    rerun_if_headers_change(&[
+        PathBuf::from("vlib_wrapper.c"),
+        out_dir().join(BUILD_VER_PROBE),
+        out_dir().join(SHARED_HEAP_PROBE),
+    ]);
+
     let bindings = bindgen::Builder::default()
         .header("vlib_wrapper.h")
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .allowlist_file("vlib_wrapper\\.h")
         .allowlist_file(".*/vlib/buffer\\.h")
         .allowlist_file(".*/vlib/buffer_funcs\\.h")

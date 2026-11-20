@@ -512,10 +512,25 @@ const CPU_MARCH_TO_CPU_AND_TARGET_FEATURE: &[(&str, Option<&str>, Option<&str>)]
     // variants below (any aarch64 core not listed, e.g. Apple silicon or Neoverse V1) leaves
     // the node with a NULL function and the first dispatch jumps to address 0.
     ("default", None, None),
+    // VPP's variants differ by release: 26.06 replaced x86's hsw, skx and icl with x86_64_v3
+    // and x86_64_v4. Every name here is registered only when the VPP built against defines it
+    // (`vpp_plugin::macro_support::march_variant`, whose list in vpp-plugin's build.rs must
+    // name each of these).
     ("scalar", Some("x86_64"), None),
     ("hsw", Some("x86_64"), Some("avx2")),
     ("skx", Some("x86_64"), Some("avx512f")),
     ("icl", Some("x86_64"), Some("avx512bitalg")),
+    // The x86-64-v3 and -v4 psABI levels (AVX, OSXSAVE implied by AVX2).
+    (
+        "x86_64_v3",
+        Some("x86_64"),
+        Some("avx2,bmi1,bmi2,f16c,fma,lzcnt,movbe"),
+    ),
+    (
+        "x86_64_v4",
+        Some("x86_64"),
+        Some("avx2,bmi1,bmi2,f16c,fma,lzcnt,movbe,avx512f,avx512bw,avx512cd,avx512dq,avx512vl"),
+    ),
     // Features equivalent to "v8.2a,sha2,aes", but avoiding use of unstable v8.2a feature
     (
         "octeontx2",
@@ -758,18 +773,16 @@ pub fn vlib_node(attributes: TokenStream, s: TokenStream) -> TokenStream {
                 format!("{}_multiarch_register_{}", ident, cpu_march).as_ref(),
             )
             .expect("Unable to create identifier");
-            let march_variant_ident = syn::parse_str::<syn::Ident>(
-                if *cpu_march == "default" {
-                    "clib_march_variant_type_t_CLIB_MARCH_VARIANT_TYPE".to_owned()
-                } else {
-                    format!(
-                        "clib_march_variant_type_t_CLIB_MARCH_VARIANT_TYPE_{}",
-                        cpu_march
-                    )
-                }
-                .as_ref(),
-            )
-            .expect("Unable to create identifier");
+            // `Some(variant)` when the VPP built against defines this variant, else `None`.
+            let march_variant = if *cpu_march == "default" {
+                quote!(::std::option::Option::Some(
+                    ::vpp_plugin::bindings::clib_march_variant_type_t_CLIB_MARCH_VARIANT_TYPE
+                ))
+            } else {
+                let name =
+                    syn::parse_str::<syn::Ident>(cpu_march).expect("Unable to create identifier");
+                quote!(::vpp_plugin::macro_support::march_variant::#name)
+            };
             let cpu_condition = if let Some(cpu) = cpu {
                 quote!(#[cfg(target_arch = #cpu)])
             } else {
@@ -804,7 +817,11 @@ pub fn vlib_node(attributes: TokenStream, s: TokenStream) -> TokenStream {
                 #[doc(hidden)]
                 static mut #registration_ident: ::vpp_plugin::bindings::vlib_node_fn_registration_t = ::vpp_plugin::bindings::vlib_node_fn_registration_t{
                     function: Some(#raw_node_fn_ident),
-                    march_variant: ::vpp_plugin::bindings::#march_variant_ident,
+                    // Unused when `None`: the ctor below then registers nothing.
+                    march_variant: match #march_variant {
+                        ::std::option::Option::Some(v) => v,
+                        ::std::option::Option::None => 0,
+                    },
                     next_registration: std::ptr::null_mut(),
                 };
 
@@ -812,8 +829,10 @@ pub fn vlib_node(attributes: TokenStream, s: TokenStream) -> TokenStream {
                 #[doc(hidden)]
                 #[::vpp_plugin::macro_support::ctor::ctor(crate_path = ::vpp_plugin::macro_support::ctor)]
                 fn #reg_fn_ident() {
-                    unsafe {
-                        #reg_ident.register_node_fn(std::ptr::addr_of!(#registration_ident).cast_mut());
+                    if #march_variant.is_some() {
+                        unsafe {
+                            #reg_ident.register_node_fn(std::ptr::addr_of!(#registration_ident).cast_mut());
+                        }
                     }
                 }
             );

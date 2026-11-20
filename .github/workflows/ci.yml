@@ -57,8 +57,8 @@ jobs:
         include:
           - { runner: 'ubuntu-24.04', vpp: '26.02' }
           - { runner: 'ubuntu-24.04-arm', vpp: '26.02' }
-          # 26.06 renamed its x86_64 march variants (scalar, x86_64_v3, x86_64_v4), which the
-          # node macro does not register yet, so 26.06 is tested on aarch64 only.
+          # 26.06 renamed its x86_64 march variants (scalar, x86_64_v3, x86_64_v4).
+          - { runner: 'ubuntu-24.04', vpp: '26.06' }
           - { runner: 'ubuntu-24.04-arm', vpp: '26.06' }
     steps:
       - uses: actions/checkout@v5

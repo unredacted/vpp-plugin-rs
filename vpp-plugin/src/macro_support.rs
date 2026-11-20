@@ -3,6 +3,15 @@
 pub extern crate ctor;
 pub extern crate va_list;
 
+/// VPP's march variants that `#[vlib_node]` knows, each `Some` with its
+/// `clib_march_variant_type_t` value when the VPP built against defines it.
+/// The list differs between VPP releases, so the macro registers a node
+/// function only for the variants that are `Some`.
+#[allow(non_upper_case_globals)]
+pub mod march_variant {
+    include!(concat!(env!("OUT_DIR"), "/march_variants.rs"));
+}
+
 /// Converts a string to a NUL-terminated, zero-padded C character array of length `N`, at compile
 /// time.
 ///
